@@ -1,0 +1,17 @@
+{
+  "name": "superbizagent-frontend",
+  "version": "1.0.0",
+  "description": "SuperBizAgent Frontend",
+  "main": "index.html",
+  "scripts": {
+    "dev": "live-server --port=3000 --host=localhost --watch=.",
+    "build": "echo 'Build completed'",
+    "start": "live-server --port=3000 --host=localhost"
+  },
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

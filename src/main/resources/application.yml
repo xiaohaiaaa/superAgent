@@ -1,0 +1,105 @@
+server:
+  port: 9900
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# Spring Boot 配置
+spring:
+  servlet:
+    # 配置文件上传大小限制
+    multipart:
+      max-file-size: 100MB  # 单个文件最大大小
+      max-request-size: 100MB  # 整个请求最大大小
+      enabled: true
+
+  # Redis 配置 - 分布式 Session 存储
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 8
+        min-idle: 2
+        max-wait: 1000ms
+
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:sk-71b2bd43645542519b599bb8df4560a4}  # 从环境变量读取或使用默认值
+      chat:
+        options:
+          timeout: 180000  # 超时时间180秒（3分钟）
+      retry:
+        max-attempts: 3  # 最大重试次数
+        backoff:
+          initial-interval: 2000  # 初始重试间隔2秒
+          multiplier: 2  # 重试间隔倍数
+          max-interval: 10000  # 最大重试间隔10秒
+
+    # Spring AI MCP 客户端配置
+    # 如果使用mock数据，请注释这部分内容
+    mcp:
+      client:
+        enabled: true
+        name: tencent-mcp-server
+        version: 1.0.0
+        request-timeout: 60s
+        type: ASYNC
+        sse:
+          connections:
+            tencent-cls:
+              url: https://mcp-api.tencent-cloud.com
+              sse-endpoint: /sse/b9e15e6dbbfd024b  # 完整的SSE端点路径
+
+# 阿里云 DashScope Embedding API 配置
+dashscope:
+  api:
+    key: ${DASHSCOPE_API_KEY:sk-71b2bd43645542519b599bb8df4560a4}  # 从环境变量读取或使用默认值（用于自定义配置）
+  embedding:
+    model: text-embedding-v4  # 阿里云文本向量化模型
+
+# 文档分片配置
+document:
+  chunk:
+    max-size: 800  # 每个分片最大字符数
+    overlap: 100   # 分片之间的重叠字符数
+    # 大文件分片策略
+    large-file-threshold: 5MB  # 大文件阈值
+    large-file-chunk-size: 600 # 大文件时分片大小减少以节省内存
+
+# RAG 配置
+rag:
+  top-k: 3  # 检索返回的最相似文档数量
+  model: "qwen3-max"  # 大语言模型名称
+
+# Chat 配置
+chat:
+  enable-prerag: true  # 是否启用前置检索模式（HyRAG），true表示在调用大模型前先检索文档并注入上下文
+                        # false表示使用标准Agent模式，RAG作为工具由大模型决定是否调用
+  prerag-keep-rag-tool: false  # 前置检索模式下是否保留 RAG 工具作为备选
+                                # true: 保留 RAG 工具，模型可在已注入文档基础上进一步检索
+                                # false: 移除 RAG 工具，完全依赖前置检索的文档，避免重复检索
+
+# Prometheus 配置
+prometheus:
+  base-url: http://localhost:9090
+  timeout: 10  # 超时时间（秒）
+  mock-enabled: true  # 是否启用 Mock 模式（用于测试）
+
+# CLS 云日志服务配置
+cls:
+  mock-enabled: true  # 是否启用 Mock 模式（用于测试，设为 true 返回与告警关联的模拟日志数据）
+
+milvus:
+  host: 192.168.1.106
+
+# Session 配置
+session:
+  ttl-seconds: 86400  # 会话 TTL，默认 24 小时
+  max-window-size: 6  # 最大历史消息对数（每对包含 user+assistant 两条）

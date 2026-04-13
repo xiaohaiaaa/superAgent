@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperBizAgent - 智能助手</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid h-100">
+        <div class="row h-100">
+            <!-- 侧边栏 -->
+            <div class="col-md-3 col-lg-2 d-md-block bg-white sidebar collapse">
+                <div class="px-4 pt-4 pb-3">
+                    <h4 class="mb-0" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                        <i class="bi bi-stars"></i> SuperBizAgent
+                    </h4>
+                </div>
+
+                <h6 class="sidebar-heading mt-4">功能</h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#" data-tab="chat">
+                            <i class="bi bi-chat-text"></i>快速对话
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-tab="chat-stream">
+                            <i class="bi bi-chat-square-text"></i>流式对话
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-tab="ai-ops">
+                            <i class="bi bi-cpu"></i>AI运维
+                        </a>
+                    </li>
+                </ul>
+
+                <h6 class="sidebar-heading mt-4">文档</h6>
+                <div class="px-4 mt-2">
+                    <button class="btn btn-outline-primary" id="upload-btn">
+                        <i class="bi bi-cloud-upload me-2"></i>上传文档
+                    </button>
+                </div>
+            </div>
+
+            <!-- 主内容区 -->
+            <main class="col-md-9 ms-sm-auto col-lg-10">
+                <!-- 快速对话面板 -->
+                <div id="chat-panel" class="content-panel active">
+                    <div class="top-bar">
+                        <h1><i class="bi bi-chat-text me-2"></i>快速对话</h1>
+                        <button class="btn btn-outline-secondary" id="clear-chat-btn">
+                            <i class="bi bi-trash me-1"></i>清空对话
+                        </button>
+                    </div>
+
+                    <!-- 对话内容区 -->
+                    <div class="chat-container">
+                        <div id="chat-messages" class="chat-messages">
+                            <div class="empty-state">
+                                <i class="bi bi-chat-dots"></i>
+                                <p class="mb-0">开始你的对话吧！</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 输入区域 -->
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <input type="text" class="form-control" id="chat-input" placeholder="输入消息..." autocomplete="off" />
+                            <button class="btn btn-primary" id="send-chat-btn">
+                                <i class="bi bi-send-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 流式对话面板 -->
+                <div id="chat-stream-panel" class="content-panel">
+                    <div class="top-bar">
+                        <h1><i class="bi bi-chat-square-text me-2"></i>流式对话</h1>
+                        <button class="btn btn-outline-secondary" id="clear-stream-btn">
+                            <i class="bi bi-trash me-1"></i>清空对话
+                        </button>
+                    </div>
+
+                    <!-- 对话内容区 -->
+                    <div class="chat-container">
+                        <div id="stream-messages" class="chat-messages">
+                            <div class="empty-state">
+                                <i class="bi bi-chat-square-dots"></i>
+                                <p class="mb-0">开始流式对话吧！</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 输入区域 -->
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <input type="text" class="form-control" id="stream-input" placeholder="输入消息..." autocomplete="off" />
+                            <button class="btn btn-primary" id="send-stream-btn">
+                                <i class="bi bi-send-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI运维面板 -->
+                <div id="ai-ops-panel" class="content-panel">
+                    <div class="top-bar">
+                        <h1><i class="bi bi-cpu me-2"></i>AI智能运维</h1>
+                    </div>
+
+                    <!-- 运维输出区 -->
+                    <div class="ai-ops-container">
+                        <div id="ai-ops-output" class="ai-ops-output">
+                            <div class="empty-state">
+                                <i class="bi bi-lightning"></i>
+                                <p class="mb-0">点击下方按钮开始智能分析</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 操作区域 -->
+                    <div class="ai-ops-action-bar">
+                        <button class="btn btn-primary" id="start-ai-ops-btn" style="padding: 12px 32px; font-size: 16px;">
+                            <i class="bi bi-play-fill me-2"></i>开始分析
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 文件上传对话框 -->
+    <div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="uploadModalLabel">
+                        <i class="bi bi-cloud-upload me-2"></i>上传文档
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 文件拖拽区域 -->
+                    <div class="upload-area" id="upload-area">
+                        <i class="bi bi-file-earmark-arrow-up display-4"></i>
+                        <h5 class="mb-2">拖拽文件到此处</h5>
+                        <p class="text-muted mb-0">或点击选择文件</p>
+                        <p class="text-muted small mt-2">支持 .txt, .md 格式</p>
+                        <input type="file" class="d-none" id="file-input" accept=".txt,.md">
+                    </div>
+
+                    <!-- 文件信息显示 -->
+                    <div id="file-info" class="d-none mt-4">
+                        <div class="card" style="border: 2px solid #e5e7eb; border-radius: 12px;">
+                            <div class="card-body py-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-text text-primary me-3" style="font-size: 24px;"></i>
+                                        <span id="file-name" class="fw-medium"></span>
+                                    </div>
+                                    <button class="btn btn-sm btn-outline-danger rounded-circle" id="remove-file-btn" style="width: 36px; height: 36px;">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 上传进度 -->
+                    <div id="upload-progress" class="d-none mt-4">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                 role="progressbar" style="width: 0%" id="progress-bar"></div>
+                        </div>
+                        <div class="text-center mt-2 small text-muted" id="progress-text">0%</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="confirm-upload-btn" disabled>
+                        <i class="bi bi-upload me-1"></i>上传
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
