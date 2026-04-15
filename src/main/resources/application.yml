@@ -16,18 +16,19 @@ spring:
       enabled: true
 
   # Redis 配置 - 分布式 Session 存储
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
-    database: 0
-    timeout: 3000ms
-    lettuce:
-      pool:
-        max-active: 16
-        max-idle: 8
-        min-idle: 2
-        max-wait: 1000ms
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 1000ms
 
   ai:
     dashscope:
@@ -78,13 +79,37 @@ rag:
   top-k: 3  # 检索返回的最相似文档数量
   model: "qwen3-max"  # 大语言模型名称
 
-# Chat 配置
-chat:
-  enable-prerag: true  # 是否启用前置检索模式（HyRAG），true表示在调用大模型前先检索文档并注入上下文
-                        # false表示使用标准Agent模式，RAG作为工具由大模型决定是否调用
-  prerag-keep-rag-tool: false  # 前置检索模式下是否保留 RAG 工具作为备选
-                                # true: 保留 RAG 工具，模型可在已注入文档基础上进一步检索
-                                # false: 移除 RAG 工具，完全依赖前置检索的文档，避免重复检索
+# 系统提示词配置
+prompts:
+  # 基础提示词（无 RAG 上下文）
+  base: |
+    你是一个专业的智能助手，可以获取当前时间、查询天气信息、搜索内部文档知识库，以及查询 Prometheus 告警信息。
+    当用户询问时间相关问题时，使用 getCurrentDateTime 工具。
+    当用户需要查询公司内部文档、流程、最佳实践或技术指南时，使用 queryInternalDocs 工具。
+    当用户需要查询 Prometheus 告警、监控指标或系统告警状态时，使用 queryPrometheusAlerts 工具。
+    当用户需要查询腾讯云日志时，请调用腾讯云mcp服务查询,默认查询地域ap-guangzhou,查询时间范围为近一个月。
+
+  # 前置 RAG 模式提示词（包含知识库检索上下文）
+  prerag: |
+    你是一个专业的智能助手，可以获取当前时间、查询天气信息、搜索内部文档知识库，以及查询 Prometheus 告警信息。
+    当用户询问时间相关问题时，使用 getCurrentDateTime 工具。
+    当用户需要查询 Prometheus 告警、监控指标或系统告警状态时，使用 queryPrometheusAlerts 工具。
+    当用户需要查询腾讯云日志时，请调用腾讯云mcp服务查询,默认查询地域ap-guangzhou,查询时间范围为近一个月。
+
+    --- 内部文档知识库（已为您检索）---
+    {rag_context}
+    --- 知识库内容结束 ---
+
+    【重要】请优先参考上述检索到的文档内容回答用户问题。文档内容已包含在上下文中，请基于这些信息回答问题。如果文档中没有相关信息，请基于你的通用知识回答。
+
+  # 对话历史格式化模板
+  history: |
+    --- 对话历史 ---
+    {history}
+    --- 对话历史结束 ---
+
+  # 结尾提示
+  ending: 请基于以上检索到的文档内容和对话历史，回答用户的新问题。
 
 # Prometheus 配置
 prometheus:
@@ -97,9 +122,10 @@ cls:
   mock-enabled: true  # 是否启用 Mock 模式（用于测试，设为 true 返回与告警关联的模拟日志数据）
 
 milvus:
-  host: 192.168.1.106
+  #host: 192.168.1.106
+  host: localhost
 
 # Session 配置
 session:
   ttl-seconds: 86400  # 会话 TTL，默认 24 小时
-  max-window-size: 6  # 最大历史消息对数（每对包含 user+assistant 两条）
+  max-window-size: 10  # 最大历史消息对数（每对包含 user+assistant 两条）

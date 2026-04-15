@@ -57,7 +57,7 @@ public class InternalDocsTools {
 
         try {
             // 使用向量搜索服务检索相关文档
-            List<VectorSearchService.SearchResult> searchResults = 
+            List<org.example.dto.SearchResult> searchResults =
                     vectorSearchService.searchSimilarDocuments(query, topK);
             
             if (searchResults.isEmpty()) {

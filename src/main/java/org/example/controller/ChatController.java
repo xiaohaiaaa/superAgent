@@ -1,15 +1,11 @@
 package org.example.controller;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
-import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.OverAllState;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.streaming.OutputType;
-import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
-import lombok.Getter;
-import lombok.Setter;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.example.dto.*;
+import org.example.service.AgentSessionService;
 import org.example.service.AiOpsService;
 import org.example.service.ChatService;
 import org.example.service.RedisSessionService;
@@ -22,25 +18,29 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 统一 API 控制器
- * 适配前端接口需求
  */
 @RestController
 @RequestMapping("/api")
+@Tag(name = "聊天API", description = "对话服务接口")
 public class ChatController {
 
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
 
     @Autowired
     private AiOpsService aiOpsService;
+
+    @Autowired
+    private AgentSessionService agentSessionService;
 
     @Autowired
     private ChatService chatService;
@@ -53,107 +53,60 @@ public class ChatController {
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    /**
-     * 普通对话接口（支持工具调用）
-     * 与 /chat_react 逻辑一致，但直接返回完整结果而非流式输出
-     */
+    @Operation(summary = "普通对话", description = "支持工具调用的对话接口，非流式返回")
     @PostMapping("/chat")
     public ResponseEntity<ApiResponse<ChatResponse>> chat(@RequestBody ChatRequest request) {
+        String sessionId = resolveSessionId(request.getId());
+
+        if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.error("问题内容不能为空")));
+        }
+
+        ReentrantLock lock = agentSessionService.getSessionLock(sessionId);
+        lock.lock();
         try {
-            logger.info("收到对话请求 - SessionId: {}, Question: {}", request.getId(), request.getQuestion());
-
-            // 参数校验
-            if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
-                logger.warn("问题内容为空");
-                return ResponseEntity.ok(ApiResponse.success(ChatResponse.error("问题内容不能为空")));
-            }
-
-            // 获取或创建会话 ID
-            String sessionId = resolveSessionId(request.getId());
-
-            // 获取历史消息
-            List<Map<String, String>> history = redisSessionService.getHistory(sessionId);
-            logger.info("会话历史消息对数: {}", history.size() / 2);
-
-            // 创建 DashScope API 和 ChatModel
-            DashScopeApi dashScopeApi = chatService.createDashScopeApi();
-            DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
-
-            // 记录可用工具
-            chatService.logAvailableTools();
-
-            logger.info("开始 ReactAgent 对话（支持自动工具调用）");
-
-            // 构建系统提示词（根据配置决定是否使用前置检索模式）
-            String systemPrompt;
-            boolean includeRagTool = true;
-            if (chatService.isPreRAGEnabled()) {
-                logger.info("使用前置检索模式（HyRAG）");
-                systemPrompt = chatService.buildSystemPromptWithRAGContext(history, request.getQuestion());
-                // 前置检索模式下，根据配置决定是否保留 RAG 工具
-                includeRagTool = chatService.isPreRAGKeepRagTool();
-            } else {
-                logger.info("使用标准Agent模式（RAG作为工具）");
-                systemPrompt = chatService.buildSystemPrompt(history);
-            }
-
-            // 创建 ReactAgent
-            ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt, includeRagTool);
-            
-            // 执行对话
-            String fullAnswer = chatService.executeChat(agent, request.getQuestion());
-            
-            // 更新会话历史
-            redisSessionService.addMessage(sessionId, request.getQuestion(), fullAnswer);
-            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
-                sessionId, redisSessionService.getMessagePairCount(sessionId));
-            
-            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(fullAnswer)));
-
+            var history = redisSessionService.getHistory(sessionId);
+            String answer = chatService.chat(history, request.getQuestion());
+            redisSessionService.addMessage(sessionId, request.getQuestion(), answer);
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(answer)));
         } catch (Exception e) {
             logger.error("对话失败", e);
             return ResponseEntity.ok(ApiResponse.success(ChatResponse.error(e.getMessage())));
+        } finally {
+            lock.unlock();
         }
     }
 
-    /**
-     * 清空会话历史
-     */
+    @Operation(summary = "清空会话历史", description = "清除指定会话的所有历史消息")
     @PostMapping("/chat/clear")
     public ResponseEntity<ApiResponse<String>> clearChatHistory(@RequestBody ClearRequest request) {
         try {
-            logger.info("收到清空会话历史请求 - SessionId: {}", request.getId());
-
             if (request.getId() == null || request.getId().isEmpty()) {
                 return ResponseEntity.ok(ApiResponse.error("会话ID不能为空"));
             }
 
             if (redisSessionService.exists(request.getId())) {
                 redisSessionService.clearHistory(request.getId());
+                agentSessionService.clearSession(request.getId());
                 return ResponseEntity.ok(ApiResponse.success("会话历史已清空"));
             } else {
                 return ResponseEntity.ok(ApiResponse.error("会话不存在"));
             }
-
         } catch (Exception e) {
             logger.error("清空会话历史失败", e);
             return ResponseEntity.ok(ApiResponse.error(e.getMessage()));
         }
     }
 
-    /**
-     * ReactAgent 对话接口（SSE 流式模式，支持多轮对话，支持自动工具调用，例如获取当前时间，查询日志，告警等）
-     * 支持 session 管理，保留对话历史
-     */
+    @Operation(summary = "流式对话", description = "SSE流式对话接口，支持多轮对话和自动工具调用")
     @PostMapping(value = "/chat_stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chatStream(@RequestBody ChatRequest request) {
-        SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
+        SseEmitter emitter = new SseEmitter(300000L);
+        String sessionId = resolveSessionId(request.getId());
 
-        // 参数校验
         if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
-            logger.warn("问题内容为空");
             try {
-                emitter.send(SseEmitter.event().name("message").data(SseMessage.error("问题内容不能为空"), MediaType.APPLICATION_JSON));
+                emitter.send(SseEmitter.event().name("message").data(SseMessage.error("问题内容为空"), MediaType.APPLICATION_JSON));
                 emitter.complete();
             } catch (IOException e) {
                 emitter.completeWithError(e);
@@ -162,224 +115,87 @@ public class ChatController {
         }
 
         executor.execute(() -> {
+            ReentrantLock lock = agentSessionService.getSessionLock(sessionId);
+            lock.lock();
             try {
-                logger.info("收到 ReactAgent 对话请求 - SessionId: {}, Question: {}", request.getId(), request.getQuestion());
+                var history = redisSessionService.getHistory(sessionId);
 
-                // 获取或创建会话 ID
-                String sessionId = resolveSessionId(request.getId());
-
-                // 获取历史消息
-                List<Map<String, String>> history = redisSessionService.getHistory(sessionId);
-                logger.info("ReactAgent 会话历史消息对数: {}", history.size() / 2);
-
-                // 创建 DashScope API 和 ChatModel
-                DashScopeApi dashScopeApi = chatService.createDashScopeApi();
-                DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
-
-                // 记录可用工具
-                chatService.logAvailableTools();
-
-                logger.info("开始 ReactAgent 流式对话（支持自动工具调用）");
-
-                // 构建系统提示词（根据配置决定是否使用前置检索模式）
-                String systemPrompt;
-                boolean includeRagTool = true;
-                if (chatService.isPreRAGEnabled()) {
-                    logger.info("使用前置检索模式（HyRAG）");
-                    systemPrompt = chatService.buildSystemPromptWithRAGContext(history, request.getQuestion());
-                    // 前置检索模式下，根据配置决定是否保留 RAG 工具
-                    includeRagTool = chatService.isPreRAGKeepRagTool();
-                } else {
-                    logger.info("使用标准Agent模式（RAG作为工具）");
-                    systemPrompt = chatService.buildSystemPrompt(history);
-                }
-
-                // 创建 ReactAgent
-                ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt, includeRagTool);
-                
-                // 用于累积完整答案
-                StringBuilder fullAnswerBuilder = new StringBuilder();
-                
-                // 使用 agent.stream() 进行流式对话
-                Flux<NodeOutput> stream = agent.stream(request.getQuestion());
-                
-                stream.subscribe(
-                    output -> {
+                chatService.executeStreamChat(
+                    chatService.buildReactAgent(history, request.getQuestion()),
+                    request.getQuestion(),
+                    chunk -> {
                         try {
-                            // 检查是否为 StreamingOutput 类型
-                            if (output instanceof StreamingOutput streamingOutput) {
-                                OutputType type = streamingOutput.getOutputType();
-                                
-                                // 处理模型推理的流式输出
-                                if (type == OutputType.AGENT_MODEL_STREAMING) {
-                                    // 流式增量内容，逐步显示
-                                    String chunk = streamingOutput.message().getText();
-                                    if (chunk != null && !chunk.isEmpty()) {
-                                        fullAnswerBuilder.append(chunk);
-                                        
-                                        // 实时发送到前端
-                                        emitter.send(SseEmitter.event()
-                                                .name("message")
-                                                .data(SseMessage.content(chunk), MediaType.APPLICATION_JSON));
-                                        
-                                        logger.info("发送流式内容: {}", chunk);
-                                    }
-                                } else if (type == OutputType.AGENT_MODEL_FINISHED) {
-                                    // 模型推理完成
-                                    logger.info("模型输出完成");
-                                } else if (type == OutputType.AGENT_TOOL_FINISHED) {
-                                    // 工具调用完成
-                                    logger.info("工具调用完成: {}", output.node());
-                                } else if (type == OutputType.AGENT_HOOK_FINISHED) {
-                                    // Hook 执行完成
-                                    logger.debug("Hook 执行完成: {}", output.node());
-                                }
-                            }
+                            emitter.send(SseEmitter.event().name("message").data(SseMessage.content(chunk), MediaType.APPLICATION_JSON));
                         } catch (IOException e) {
-                            logger.error("发送流式消息失败", e);
                             throw new RuntimeException(e);
                         }
                     },
-                    error -> {
-                        // 错误处理
-                        logger.error("ReactAgent 流式对话失败", error);
+                    fullAnswer -> {
+                        redisSessionService.addMessage(sessionId, request.getQuestion(), fullAnswer);
                         try {
-                            emitter.send(SseEmitter.event()
-                                    .name("message")
-                                    .data(SseMessage.error(error.getMessage()), MediaType.APPLICATION_JSON));
+                            emitter.send(SseEmitter.event().name("message").data(SseMessage.done(), MediaType.APPLICATION_JSON));
+                            emitter.complete();
+                        } catch (IOException e) {
+                            emitter.completeWithError(e);
+                        }
+                    },
+                    error -> {
+                        logger.error("流式对话失败", error);
+                        try {
+                            emitter.send(SseEmitter.event().name("message").data(SseMessage.error(error.getMessage()), MediaType.APPLICATION_JSON));
                         } catch (IOException ex) {
                             logger.error("发送错误消息失败", ex);
                         }
                         emitter.completeWithError(error);
-                    },
-                    () -> {
-                        // 完成处理
-                        try {
-                            String fullAnswer = fullAnswerBuilder.toString();
-                            logger.info("ReactAgent 流式对话完成 - SessionId: {}, 答案长度: {}",
-                                sessionId, fullAnswer.length());
-                            
-                            // 更新会话历史
-                            redisSessionService.addMessage(sessionId, request.getQuestion(), fullAnswer);
-                            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
-                                sessionId, redisSessionService.getMessagePairCount(sessionId));
-                            
-                            // 发送完成标记
-                            emitter.send(SseEmitter.event()
-                                    .name("message")
-                                    .data(SseMessage.done(), MediaType.APPLICATION_JSON));
-                            emitter.complete();
-                        } catch (IOException e) {
-                            logger.error("发送完成消息失败", e);
-                            emitter.completeWithError(e);
-                        }
                     }
                 );
-
             } catch (Exception e) {
-                logger.error("ReactAgent 对话初始化失败", e);
+                logger.error("对话初始化失败", e);
                 try {
-                    emitter.send(SseEmitter.event()
-                            .name("message")
-                            .data(SseMessage.error(e.getMessage()), MediaType.APPLICATION_JSON));
+                    emitter.send(SseEmitter.event().name("message").data(SseMessage.error(e.getMessage()), MediaType.APPLICATION_JSON));
                 } catch (IOException ex) {
                     logger.error("发送错误消息失败", ex);
                 }
                 emitter.completeWithError(e);
+            } finally {
+                lock.unlock();
             }
         });
 
         return emitter;
     }
 
-    /**
-     * AI 智能运维接口（SSE 流式模式）- 自动分析告警并生成运维报告
-     * 无需用户输入，自动执行告警分析流程
-     */
+    @Operation(summary = "AI智能运维", description = "自动分析告警并生成运维报告，无需用户输入")
     @PostMapping(value = "/ai_ops", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter aiOps() {
-        SseEmitter emitter = new SseEmitter(600000L); // 10分钟超时（告警分析可能较慢）
+        SseEmitter emitter = new SseEmitter(600000L);
 
         executor.execute(() -> {
             try {
-                logger.info("收到 AI 智能运维请求 - 启动多 Agent 协作流程");
-
-                DashScopeApi dashScopeApi = chatService.createDashScopeApi();
-                DashScopeChatModel chatModel = DashScopeChatModel.builder()
-                        .dashScopeApi(dashScopeApi)
-                        .defaultOptions(DashScopeChatOptions.builder()
-                                .withModel(DashScopeChatModel.DEFAULT_MODEL_NAME)
-                                .withTemperature(0.3)
-                                .withMaxToken(8000)
-                                .withTopP(0.9)
-                                .build())
-                        .build();
-
+                DashScopeChatModel chatModel = chatService.createAiOpsChatModel();
                 ToolCallback[] toolCallbacks = tools.getToolCallbacks();
 
-                emitter.send(SseEmitter.event().name("message").data(SseMessage.content("正在读取告警并拆解任务...\n")));
-                
-                // 调用 AiOpsService 执行分析流程
-                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks);
+                sendSseMessage(emitter, "正在读取告警并拆解任务...\n");
 
+                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks);
                 if (overAllStateOptional.isEmpty()) {
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.error("多 Agent 编排未获取到有效结果"), MediaType.APPLICATION_JSON));
+                    sendSseMessage(emitter, SseMessage.error("多 Agent 编排未获取到有效结果"));
                     emitter.complete();
                     return;
                 }
 
-                OverAllState state = overAllStateOptional.get();
-                logger.info("AI Ops 编排完成，开始提取最终报告...");
-
-                // 提取最终报告
-                Optional<String> finalReportOptional = aiOpsService.extractFinalReport(state);
-
-                // 输出最终报告
+                Optional<String> finalReportOptional = aiOpsService.extractFinalReport(overAllStateOptional.get());
                 if (finalReportOptional.isPresent()) {
-                    String finalReportText = finalReportOptional.get();
-                    logger.info("提取到 Planner 最终报告，长度: {}", finalReportText.length());
-                    
-                    // 发送分隔线
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.content("\n\n" + "=".repeat(60) + "\n"), MediaType.APPLICATION_JSON));
-                    
-                    // 发送完整的告警分析报告
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.content("📋 **告警分析报告**\n\n"), MediaType.APPLICATION_JSON));
-                    
-                    int chunkSize = 50;
-                    for (int i = 0; i < finalReportText.length(); i += chunkSize) {
-                        int end = Math.min(i + chunkSize, finalReportText.length());
-                        String chunk = finalReportText.substring(i, end);
-                        
-                        emitter.send(SseEmitter.event().name("message")
-                                .data(SseMessage.content(chunk), MediaType.APPLICATION_JSON));
-                    }
-                    
-                    // 发送结束分隔线
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.content("\n" + "=".repeat(60) + "\n\n"), MediaType.APPLICATION_JSON));
-                    
-                    logger.info("最终报告已完整输出");
+                    sendReport(emitter, finalReportOptional.get());
                 } else {
-                    logger.warn("未能提取到 Planner 最终报告");
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.content("⚠️ 多 Agent 流程已完成，但未能生成最终报告。"), MediaType.APPLICATION_JSON));
+                    sendSseMessage(emitter, "⚠️ 多 Agent 流程已完成，但未能生成最终报告。");
                 }
 
-                emitter.send(SseEmitter.event().name("message").data(SseMessage.done(), MediaType.APPLICATION_JSON));
+                sendSseMessage(emitter, SseMessage.done());
                 emitter.complete();
-                logger.info("AI Ops 多 Agent 编排完成");
-
             } catch (Exception e) {
                 logger.error("AI Ops 多 Agent 协作失败", e);
-                try {
-                    emitter.send(SseEmitter.event().name("message")
-                            .data(SseMessage.error("AI Ops 流程失败: " + e.getMessage()), MediaType.APPLICATION_JSON));
-                } catch (IOException ex) {
-                    logger.error("发送错误消息失败", ex);
-                }
+                sendSseMessage(emitter, SseMessage.error("AI Ops 流程失败: " + e.getMessage()));
                 emitter.completeWithError(e);
             }
         });
@@ -387,25 +203,19 @@ public class ChatController {
         return emitter;
     }
 
-
-    /**
-     * 获取会话信息
-     */
+    @Operation(summary = "获取会话信息", description = "查询指定会话的基本信息")
     @GetMapping("/chat/session/{sessionId}")
     public ResponseEntity<ApiResponse<SessionInfoResponse>> getSessionInfo(@PathVariable String sessionId) {
         try {
-            logger.info("收到获取会话信息请求 - SessionId: {}", sessionId);
-
             if (redisSessionService.exists(sessionId)) {
                 SessionInfoResponse response = new SessionInfoResponse();
                 response.setSessionId(sessionId);
                 response.setMessagePairCount(redisSessionService.getMessagePairCount(sessionId));
-                response.setCreateTime(0L); // Redis 不记录创建时间，返回 0
+                response.setCreateTime(0L);
                 return ResponseEntity.ok(ApiResponse.success(response));
             } else {
                 return ResponseEntity.ok(ApiResponse.error("会话不存在"));
             }
-
         } catch (Exception e) {
             logger.error("获取会话信息失败", e);
             return ResponseEntity.ok(ApiResponse.error(e.getMessage()));
@@ -415,132 +225,33 @@ public class ChatController {
     // ==================== 辅助方法 ====================
 
     private String resolveSessionId(String sessionId) {
-        if (sessionId == null || sessionId.isEmpty()) {
-            return UUID.randomUUID().toString();
-        }
-        return sessionId;
+        return (sessionId == null || sessionId.isEmpty()) ? UUID.randomUUID().toString() : sessionId;
     }
 
-    /**
-     * 聊天请求
-     */
-    @Setter
-    @Getter
-    public static class ChatRequest {
-        @com.fasterxml.jackson.annotation.JsonProperty(value = "Id")
-        @com.fasterxml.jackson.annotation.JsonAlias({"id", "ID"})
-        private String Id;
-        
-        @com.fasterxml.jackson.annotation.JsonProperty(value = "Question")
-        @com.fasterxml.jackson.annotation.JsonAlias({"question", "QUESTION"})
-        private String Question;
+    private void sendReport(SseEmitter emitter, String reportText) throws IOException {
+        sendSseMessage(emitter, "\n\n" + "=".repeat(60) + "\n");
+        sendSseMessage(emitter, "📋 **告警分析报告**\n\n");
 
-    }
-
-    /**
-     * 清空会话请求
-     */
-    @Setter
-    @Getter
-    public static class ClearRequest {
-        @com.fasterxml.jackson.annotation.JsonProperty(value = "Id")
-        @com.fasterxml.jackson.annotation.JsonAlias({"id", "ID"})
-        private String Id;
-    }
-
-    // ==================== 内部类 ====================
-
-    /**
-     * 会话信息响应
-     */
-    @Setter
-    @Getter
-    public static class SessionInfoResponse {
-        private String sessionId;
-        private int messagePairCount;
-        private long createTime;
-    }
-
-    /**
-     * 统一聊天响应格式
-     * 适用于所有普通返回模式的对话接口
-     */
-    @Setter
-    @Getter
-    public static class ChatResponse {
-        private boolean success;
-        private String answer;
-        private String errorMessage;
-
-        public static ChatResponse success(String answer) {
-            ChatResponse response = new ChatResponse();
-            response.setSuccess(true);
-            response.setAnswer(answer);
-            return response;
+        for (int i = 0; i < reportText.length(); i += 50) {
+            sendSseMessage(emitter, reportText.substring(i, Math.min(i + 50, reportText.length())));
         }
 
-        public static ChatResponse error(String errorMessage) {
-            ChatResponse response = new ChatResponse();
-            response.setSuccess(false);
-            response.setErrorMessage(errorMessage);
-            return response;
+        sendSseMessage(emitter, "\n" + "=".repeat(60) + "\n\n");
+    }
+
+    private void sendSseMessage(SseEmitter emitter, String content) {
+        try {
+            emitter.send(SseEmitter.event().name("message").data(SseMessage.content(content), MediaType.APPLICATION_JSON));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    /**
-     * 统一 SSE 流式消息格式
-     * 适用于所有 SSE 流式返回模式的对话接口
-     */
-    @Setter
-    @Getter
-    public static class SseMessage {
-        private String type;  // content: 内容块, error: 错误, done: 完成
-        private String data;
-
-        public static SseMessage content(String data) {
-            SseMessage message = new SseMessage();
-            message.setType("content");
-            message.setData(data);
-            return message;
+    private void sendSseMessage(SseEmitter emitter, SseMessage message) {
+        try {
+            emitter.send(SseEmitter.event().name("message").data(message, MediaType.APPLICATION_JSON));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-
-        public static SseMessage error(String errorMessage) {
-            SseMessage message = new SseMessage();
-            message.setType("error");
-            message.setData(errorMessage);
-            return message;
-        }
-
-        public static SseMessage done() {
-            SseMessage message = new SseMessage();
-            message.setType("done");
-            message.setData(null);
-            return message;
-        }
-    }
-
-
-    @Getter
-    @Setter
-    public static class ApiResponse<T> {
-        private int code;
-        private String message;
-        private T data;
-
-        public static <T> ApiResponse<T> success(T data) {
-            ApiResponse<T> response = new ApiResponse<>();
-            response.setCode(200);
-            response.setMessage("success");
-            response.setData(data);
-            return response;
-        }
-
-        public static <T> ApiResponse<T> error(String message) {
-            ApiResponse<T> response = new ApiResponse<>();
-            response.setCode(500);
-            response.setMessage(message);
-            return response;
-        }
-
     }
 }
