@@ -57,14 +57,6 @@ public interface ChatService {
     String buildSystemPromptWithRAGContext(List<Map<String, String>> history, String question);
 
     /**
-     * 构建不含RAG上下文的系统提示词（用于初始化会话等不需要检索的场景）
-     *
-     * @param history 历史消息列表
-     * @return 不含RAG上下文的系统提示词
-     */
-    String buildSystemPromptWithoutRAG(List<Map<String, String>> history);
-
-    /**
      * 获取工具回调列表，mcp服务提供的工具
      * @return ToolCallback 数组
      */

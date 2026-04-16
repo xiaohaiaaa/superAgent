@@ -68,7 +68,7 @@ public class AgentSessionServiceImpl implements AgentSessionService {
         DashScopeApi dashScopeApi = chatService.createDashScopeApi();
         DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
 
-        String systemPrompt = chatService.buildSystemPromptWithoutRAG(Collections.emptyList());
+        String systemPrompt = chatService.buildSystemPromptWithRAGContext(Collections.emptyList(), "");
 
         ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt);
 

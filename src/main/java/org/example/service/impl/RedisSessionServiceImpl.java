@@ -1,7 +1,6 @@
 package org.example.service.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.config.KryoConfig.KryoFactory;
 import org.example.dto.SessionMessage;
 import org.example.service.RedisSessionService;
 import org.slf4j.Logger;
@@ -26,7 +25,7 @@ public class RedisSessionServiceImpl implements RedisSessionService {
     private static final String KEY_SUFFIX = ":history";
 
     private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
+    private final KryoFactory kryoFactory;
 
     @Value("${session.ttl-seconds:86400}")
     private long ttlSeconds;
@@ -34,9 +33,9 @@ public class RedisSessionServiceImpl implements RedisSessionService {
     @Value("${session.max-window-size:6}")
     private int maxWindowSize;
 
-    public RedisSessionServiceImpl(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public RedisSessionServiceImpl(StringRedisTemplate redisTemplate, KryoFactory kryoFactory) {
         this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
+        this.kryoFactory = kryoFactory;
     }
 
     @Override
@@ -48,14 +47,14 @@ public class RedisSessionServiceImpl implements RedisSessionService {
             // 1. 先确保 TTL 存在（key 不存在时返回 false，不影响后续操作）
             redisTemplate.expire(key, ttlSeconds, TimeUnit.SECONDS);
 
-            String userJson = objectMapper.writeValueAsString(new SessionMessage("user", userQuestion, now));
-            String assistantJson = objectMapper.writeValueAsString(new SessionMessage("assistant", aiAnswer, now));
+            String userData = kryoFactory.serializeToString(new SessionMessage("user", userQuestion, now));
+            String assistantData = kryoFactory.serializeToString(new SessionMessage("assistant", aiAnswer, now));
 
             ZSetOperations<String, String> zsetOps = redisTemplate.opsForZSet();
 
             // 2. 添加消息到 ZSET
-            zsetOps.add(key, userJson, now);
-            zsetOps.add(key, assistantJson, now + 1); // assistant 消息稍晚一点
+            zsetOps.add(key, userData, now);
+            zsetOps.add(key, assistantData, now + 1); // assistant 消息稍晚一点
 
             // 3. 维护滑动窗口：移除超过限制的旧消息
             Long size = zsetOps.size(key);
@@ -65,8 +64,11 @@ public class RedisSessionServiceImpl implements RedisSessionService {
                 zsetOps.removeRange(key, 0, removeCount - 1);
             }
 
+            // 4. 再设置一次过期时间，防止只交流了一次的对话没有设置TTL
+            redisTemplate.expire(key, ttlSeconds, TimeUnit.SECONDS);
+
             logger.debug("Session {} 历史消息更新完成，当前消息数: {}", sessionId, size);
-        } catch (JsonProcessingException e) {
+        } catch (Exception e) {
             throw new RuntimeException("序列化消息失败", e);
         }
     }
@@ -85,12 +87,12 @@ public class RedisSessionServiceImpl implements RedisSessionService {
         List<Map<String, String>> history = new ArrayList<>(rawMessages.size());
         for (String raw : rawMessages) {
             try {
-                SessionMessage msg = objectMapper.readValue(raw, SessionMessage.class);
+                SessionMessage msg = kryoFactory.deserializeFromString(raw);
                 Map<String, String> messageMap = new LinkedHashMap<>();
                 messageMap.put("role", msg.getRole());
                 messageMap.put("content", msg.getContent());
                 history.add(messageMap);
-            } catch (JsonProcessingException e) {
+            } catch (Exception e) {
                 logger.warn("反序列化历史消息失败，跳过该条: {}", raw, e);
             }
         }

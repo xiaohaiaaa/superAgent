@@ -7,6 +7,7 @@ import com.alibaba.cloud.ai.graph.NodeOutput;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.streaming.OutputType;
 import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
+import org.apache.logging.log4j.util.Strings;
 import org.example.agent.tool.DateTimeTools;
 import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
@@ -109,13 +110,14 @@ public class ChatServiceImpl implements ChatService {
     public String buildSystemPromptWithRAGContext(List<Map<String, String>> history, String question) {
         StringBuilder promptBuilder = new StringBuilder();
 
-        String ragContext;
+        String ragContext = "暂无相关文档。\n";;
+        List<org.example.dto.SearchResult> searchResults = new ArrayList<>();
         try {
-            List<org.example.dto.SearchResult> searchResults = vectorSearchService.searchSimilarDocuments(question, 5);
+            if (Strings.isNotBlank(question)) {
+                searchResults = vectorSearchService.searchSimilarDocuments(question, 5);
+            }
 
-            if (searchResults.isEmpty()) {
-                ragContext = "未在知识库中找到相关文档。\n";
-            } else {
+            if (!searchResults.isEmpty()) {
                 StringBuilder contextBuilder = new StringBuilder();
                 for (int i = 0; i < searchResults.size(); i++) {
                     org.example.dto.SearchResult result = searchResults.get(i);
@@ -128,25 +130,6 @@ public class ChatServiceImpl implements ChatService {
             ragContext = "文档检索失败，请基于你的知识回答。\n";
         }
 
-        String prompt = preragPromptTemplate.replace("{rag_context}", ragContext);
-        promptBuilder.append(prompt);
-
-        if (!history.isEmpty()) {
-            promptBuilder.append("\n");
-            String historyContent = formatHistory(history);
-            promptBuilder.append(historyTemplate.replace("{history}", historyContent));
-        }
-
-        promptBuilder.append("\n").append(endingTemplate);
-        return promptBuilder.toString();
-    }
-
-    @Override
-    public String buildSystemPromptWithoutRAG(List<Map<String, String>> history) {
-        StringBuilder promptBuilder = new StringBuilder();
-
-        // 直接使用空的RAG上下文提示
-        String ragContext = "（初始化会话，暂无相关文档）\n";
         String prompt = preragPromptTemplate.replace("{rag_context}", ragContext);
         promptBuilder.append(prompt);
 
