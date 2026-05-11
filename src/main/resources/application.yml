@@ -115,7 +115,7 @@ prompts:
 prometheus:
   base-url: http://localhost:9090
   timeout: 10  # 超时时间（秒）
-  mock-enabled: true  # 是否启用 Mock 模式（用于测试）
+  mock-enabled: false  # 是否启用 Mock 模式（用于测试）
 
 # CLS 云日志服务配置
 cls:

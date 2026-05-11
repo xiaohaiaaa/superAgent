@@ -2,6 +2,7 @@ package org.example.service;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import com.alibaba.cloud.ai.graph.OverAllState;
+import org.example.dto.AiOpsContext;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.Optional;
@@ -12,13 +13,23 @@ import java.util.Optional;
 public interface AiOpsService {
 
     /**
-     * 执行 AI Ops 告警分析流程
+     * 执行 AI Ops 告警分析流程（兼容旧接口）
      *
      * @param chatModel 大模型实例
      * @param toolCallbacks 工具回调数组
      * @return 分析结果状态
      */
     Optional<OverAllState> executeAiOpsAnalysis(DashScopeChatModel chatModel, ToolCallback[] toolCallbacks) throws Exception;
+
+    /**
+     * 执行 AI Ops 告警分析流程（多租户版本）
+     *
+     * @param chatModel 大模型实例
+     * @param toolCallbacks 工具回调数组
+     * @param context 多租户上下文
+     * @return 最终报告文本
+     */
+    String executeAiOpsAnalysisWithContext(DashScopeChatModel chatModel, ToolCallback[] toolCallbacks, AiOpsContext context);
 
     /**
      * 从执行结果中提取最终报告文本

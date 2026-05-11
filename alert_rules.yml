@@ -1,0 +1,84 @@
+# Prometheus Alerting Rules for AI Ops Testing
+# 用于测试多 Agent 告警分析功能
+
+groups:
+  - name: aiops_test_alerts
+    rules:
+      # CPU 使用率过高告警
+      - alert: HighCPUUsage
+        expr: cpu_usage > 80
+        for: 1m
+        labels:
+          severity: critical
+          service: payment-service
+        annotations:
+          summary: "服务 CPU 使用率过高"
+          description: "{{ $labels.service }} ({{ $labels.instance }}) CPU 使用率超过 80%，当前值: {{ $value }}%"
+
+      # 内存使用率过高告警
+      - alert: HighMemoryUsage
+        expr: memory_usage > 85
+        for: 1m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "服务内存使用率过高"
+          description: "{{ $labels.service }} ({{ $labels.instance }}) 内存使用率超过 85%，当前值: {{ $value }}%，可能存在内存泄漏"
+
+      # 响应延迟过高告警
+      - alert: SlowResponse
+        expr: http_request_duration_ms > 3000
+        for: 1m
+        labels:
+          severity: warning
+          service: user-service
+        annotations:
+          summary: "服务响应时间过长"
+          description: "{{ $labels.service }} ({{ $labels.instance }}) P99 响应时间超过 3 秒，当前值: {{ $value }}ms"
+
+      # HTTP 错误率过高告警
+      - alert: HighErrorRate
+        expr: rate(http_requests_errors_total[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: error
+        annotations:
+          summary: "HTTP 错误率过高"
+          description: "{{ $labels.service }} 错误率超过 5%，当前值: {{ $value | humanizePercentage }}"
+
+      # JVM 堆内存使用过高告警
+      - alert: HighJVMHeapUsage
+        expr: (jvm_heap_used / jvm_heap_max) > 0.9
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 堆内存使用率过高"
+          description: "{{ $labels.service }} ({{ $labels.instance }}) JVM 堆内存使用率超过 90%，当前值: {{ $value | humanizePercentage }}"
+
+  - name: aiops_cpu_alerts
+    rules:
+      # 针对 payment-service 的 CPU 告警（更敏感）
+      - alert: PaymentServiceHighCPU
+        expr: cpu_usage{service="payment-service"} > 75
+        for: 30s
+        labels:
+          severity: warning
+          service: payment-service
+        annotations:
+          summary: "Payment 服务 CPU 使用率偏高"
+          description: "Payment 服务 CPU 使用率持续偏高，当前值: {{ $value }}%，建议关注"
+
+  - name: aiops_memory_alerts
+    rules:
+      # 针对 order-service 的内存告警
+      - alert: OrderServiceHighMemory
+        expr: memory_usage{service="order-service"} > 80
+        for: 1m
+        labels:
+          severity: warning
+          service: order-service
+        annotations:
+          summary: "Order 服务内存使用率偏高"
+          description: "Order 服务内存使用率持续偏高，当前值: {{ $value }}%，建议检查是否存在内存泄漏"
