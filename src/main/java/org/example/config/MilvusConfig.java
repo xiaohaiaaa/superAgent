@@ -5,6 +5,7 @@ import org.example.client.MilvusClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -15,6 +16,7 @@ import jakarta.annotation.PreDestroy;
  * 负责创建和管理 MilvusServiceClient Bean
  */
 @Configuration
+@ConditionalOnProperty(name = "milvus.enabled", havingValue = "true", matchIfMissing = false)
 public class MilvusConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(MilvusConfig.class);
@@ -26,7 +28,7 @@ public class MilvusConfig {
 
     /**
      * 创建 MilvusServiceClient Bean
-     * 
+     *
      * @return MilvusServiceClient 实例
      */
     @Bean

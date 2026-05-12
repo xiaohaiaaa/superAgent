@@ -49,13 +49,46 @@ groups:
 
       # JVM 堆内存使用过高告警
       - alert: HighJVMHeapUsage
-        expr: (jvm_heap_used / jvm_heap_max) > 0.9
+        expr: (jvm_memory_used / jvm_memory_max) > 0.9
         for: 1m
         labels:
           severity: warning
         annotations:
           summary: "JVM 堆内存使用率过高"
           description: "{{ $labels.service }} ({{ $labels.instance }}) JVM 堆内存使用率超过 90%，当前值: {{ $value | humanizePercentage }}"
+
+      # 自定义告警模拟器指标 - OOM 模拟运行中
+      - alert: AlertSimulatorOomRunning
+        expr: alert_simulator_oom_running == 1
+        for: 0s
+        labels:
+          severity: warning
+          type: simulation
+        annotations:
+          summary: "告警模拟器 - OOM 模拟正在运行"
+          description: "OOM 模拟正在运行，当前持有 {{ $value }} MB 内存"
+
+      # 自定义告警模拟器指标 - 线程泄漏模拟运行中
+      - alert: AlertSimulatorThreadLeakRunning
+        expr: alert_simulator_thread_leak_running == 1
+        for: 0s
+        labels:
+          severity: warning
+          type: simulation
+        annotations:
+          summary: "告警模拟器 - 线程泄漏模拟正在运行"
+          description: "线程泄漏模拟正在运行，已创建 {{ $value }} 个泄漏线程"
+
+      # 自定义告警模拟器指标 - CPU 飙升模拟运行中
+      - alert: AlertSimulatorCpuSpikeRunning
+        expr: alert_simulator_cpu_spike_running == 1
+        for: 0s
+        labels:
+          severity: warning
+          type: simulation
+        annotations:
+          summary: "告警模拟器 - CPU 飙升模拟正在运行"
+          description: "CPU 飙升模拟正在运行"
 
   - name: aiops_cpu_alerts
     rules:
